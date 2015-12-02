@@ -23,10 +23,10 @@ python_requirement_library(
 )
 
 python_requirement_library(
-  name = 'mesos.native',
+  name = 'mesos.executor',
   requirements = [
     python_requirement(
-      requirement = 'mesos.native==%s' % MESOS_REV,
+      requirement = 'mesos.executor==%s' % MESOS_REV,
       # This native egg  must currently be fetched out-of-band.
       # See examples/vagrant/provision-dev-cluster.sh which fetches
       # to third_party/ and uses mesos.native to enable a running
