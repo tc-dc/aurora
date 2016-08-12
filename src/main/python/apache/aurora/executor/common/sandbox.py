@@ -16,6 +16,7 @@ import getpass
 import grp
 import os
 import pwd
+import subprocess
 from abc import abstractmethod, abstractproperty
 
 from twitter.common import log
@@ -60,11 +61,17 @@ class SandboxProvider(Interface):
 
 class DefaultSandboxProvider(SandboxProvider):
   SANDBOX_NAME = 'sandbox'
+  MESOS_COMMAND_UID_ENV_VARIABLE = 'MESOS_COMMAND_UID'
 
   def from_assigned_task(self, assigned_task):
     container = assigned_task.task.container
     if container.docker:
-      return FileSystemImageSandbox(self.SANDBOX_NAME)
+      uid = os.environ.get(self.MESOS_COMMAND_UID_ENV_VARIABLE, None)
+      user = None
+      if uid:
+        uid = uid.strip()
+        user = self._get_sandbox_user(assigned_task)
+      return FileSystemImageSandbox(self.SANDBOX_NAME, user)
     elif container.mesos and container.mesos.image:
       return FileSystemImageSandbox(self.SANDBOX_NAME, self._get_sandbox_user(assigned_task))
     else:
@@ -131,10 +138,30 @@ class FileSystemImageSandbox(DirectorySandbox):
   MESOS_DIRECTORY_ENV_VARIABLE = 'MESOS_DIRECTORY'
   MESOS_SANDBOX_ENV_VARIABLE = 'MESOS_SANDBOX'
 
-  def __init__(self, sandbox_name, user=None):
+  def __init__(self, sandbox_name, user=None, uid=None):
     self._mesos_host_sandbox = os.environ[self.MESOS_DIRECTORY_ENV_VARIABLE]
     self._root = os.path.join(self._mesos_host_sandbox, sandbox_name)
+    self._uid = uid
     super(FileSystemImageSandbox, self).__init__(self._root, user=user)
+
+  def _try_create_user(self):
+    if self._uid:
+      home_dir = os.environ[self.MESOS_SANDBOX_ENV_VARIABLE]
+      cmd = "useradd -d %s -l -m -u %s %s" % (
+        home_dir,
+        self._uid,
+        self._user)
+      log.info("Executing '%s'" % cmd)
+      try:
+        subprocess.check_output(
+          ['useradd', '-d', home_dir, '-l', '-m', '-u', self._uid, self._user],
+          stderr=subprocess.STDOUT)
+      except subprocess.CalledProcessError as e:
+        raise self.CreationError('Failed to create user %s, '
+                                 'useradd exited with code %s.  %s' % (
+                                   self._user, e.returncode, e.output))
+    else:
+      log.debug('No UID found in environment, not creating new user.')
 
   def _create_symlinks(self):
     # This sets up the container to have a similar directory structure to the host.
@@ -153,4 +180,5 @@ class FileSystemImageSandbox(DirectorySandbox):
 
   def create(self):
     self._create_symlinks()
+    self._try_create_user()
     super(FileSystemImageSandbox, self).create()

@@ -187,6 +187,7 @@ public interface MesosTaskFactory {
         if (config.isSetExecutorConfig()) {
           ExecutorInfo.Builder execBuilder = configureTaskForExecutor(task, acceptedOffer)
               .setContainer(getDockerContainerInfo(dockerContainer));
+          execBuilder.getCommandBuilder().setUser(config.getJob().getRole());
           taskBuilder.setExecutor(execBuilder.build());
         } else {
           LOG.warn("Running Docker-based task without an executor.");
